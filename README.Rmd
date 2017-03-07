@@ -1,6 +1,6 @@
 ---
 title: "Problem Set 3. Due Thurs March 2 5pm"
-author: "Student name"
+author: "Eric Prince"
 date: "Feb 23, 2017"
 output: html_document
 ---
@@ -35,14 +35,21 @@ Some important identifiers for the data set:
 | `pps` | *Arabidopsis* plants |
 | `B12` | *Arabidopsis* plants expressing MLA1-HA|
 
-We will download tables from GEO containing counts of mRNA abundance from both the fungal sample.
+We will download tables from GEO containing counts of mRNA abundance from both the fungal samples.
 
 # Raw data
 
 First we need load the data.
 
 ```{r load_raw_data, message = FALSE}
-library(tidyverse)
+
+# Load necessary packages
+    pkgs <- c("tidyverse",
+              "magrittr",
+              "stringr",
+              "reshape2",
+              "cowplot")
+    pacman::p_load(pkgs, character.only = TRUE)
 
 # bgh data
 bgh_url <- 'http://www.ncbi.nlm.nih.gov/geo/download/?acc=GSE43163&format=file&file=GSE43163_CompleteCountTable_Bgh.txt.gz'
@@ -83,13 +90,40 @@ Now that the raw data are loaded, your first task is to tidy the data with `tidy
 The key steps are to `gather()` the data into key-value pairs and then `separate()` the information from the key column into new columns.
 
 ```{r problem_1}
-# add tidying code here
 
-# report the cleaned_data by just naming it, uncomment the following line:
+raw_data %>%
+  gather(key = tmp, value = value, -gene.name) %>%
+  separate(col = tmp, into = c("plant", "fungus", "time.point", "rep"), sep = "_") %>%
+  as_tibble() -> cleaned_data
+cleaned_data
+
+# alternatively,
+# 
+# raw_data %>%
+#   melt(id.vars = "gene.name") %>%
+#   separate(variable, into = c("plant", "fungus", "time.point", "rep"), sep = "_") %>%
+# as_tibble() -> cleaned_data
 # cleaned_data
+
+# which happens to be a little quicker
+#
+# > system.time(raw_data %>%
+# +                 gather(key = tmp, value = value, -gene.name) %>%
+# +                 separate(col = tmp, into = c("plant", "fungus", "time.point", "rep"), sep = "_") %>%
+# +                 as_tibble() -> cleaned_data)
+#    user  system elapsed 
+#   0.571   0.018   0.603 
+#
+# > system.time(raw_data %>%
+# +                 melt(id.vars = "gene.name") %>%
+# +                 separate(variable, into = c("plant", "fungus", "time.point", "rep"), sep = "_") %>%
+# +                 as_tibble() -> cleaned_data)
+#    user  system elapsed 
+#   0.377   0.011   0.390 
+
 ```
 
-## Problem 3
+## Problem 2
 
 You need to translate what you learned on the command line into the R world.
 
@@ -100,7 +134,11 @@ raw_data | awk '$4 == "6hpi"' | sort -k6nr | head -n 1 | cut -f2
 ```
 
 ```{r}
-# translate to dplyr code
+cleaned_data %>%
+  filter(time.point == "6hpi") %>%
+  arrange(desc(value)) %>%
+  select(plant) %>%
+  slice(1)
 ```
 
 Which plant / fungus pair has the highest expression in the 18hpi time point?
@@ -110,12 +148,16 @@ raw_data | awk '$4 == "18hpi"' | sort -k6nr | head -n 1 | cut -f2,3
 ```
 
 ```{r}
-# translate to dplyr code
+cleaned_data %>%
+  filter(time.point == "18hpi") %>%
+  arrange(desc(value)) %>%
+  select(plant, fungus) %>%
+  slice(1)
 ```
 
 ## Problem 3
 
-Identify the top 3 most consistently differentially expressed genes between the earliest and latest time points for each combination of `plant` and `fungus` strains.
+Identify the cltop 3 most consistently differentially expressed genes between the earliest and latest time points for each combination of `plant` and `fungus` strains.
 
 - "Differential expression"" is the difference between `value` (i.e., gene expression level) between time points.
 
@@ -138,25 +180,69 @@ cleaned_data %>%
 4. Sort by these statistics and use the `dplyr` verb `slice` to pull the ones you want (i.e., the top 3). Note you will have to remove `gene.name` from the grouping so that sorting works.
 
 ```{r problem_3}
+
+cleaned_data %>%
+  spread(time.point, value) %>%
+  mutate(diff = `24hpi` - `6hpi`) %>%
+  group_by(gene.name, plant, fungus) -> cleanr_data
+  
+  cleanr_data %>%
+    summarise(mean(diff),
+              var(diff)) %>%
+    filter(`mean(diff)` != 0 & `var(diff)` != 0) %>%
+    arrange(`var(diff)`,
+            desc(`mean(diff)`)) %>%
+    group_by(plant, fungus) %>%
+    slice(1:3) -> top.hits
+top.hits
+
 ```
 
 ## Problem 4
 
 Now examine the above final data frame above and write a few sentences putting inline code in least 3 places. For example, There are `r nrow(mtcars)` rows of data in `mtcars`.
 
+Starting from a population `r nrow(cleaned_data)` unique mRNA observations, we identified the top three most consistently differentially expressed genes over the time-course of the experiment.  The top hit had a mean differential expression value of `r max(top.hits[,4])` and it belonged to `r top.hits[max(top.hits[,4]),1]` which was found in the `r top.hits[max(top.hits[,4]),2]` plant and `r top.hits[max(top.hits[,4]),3]` fungus combination.
+
 ## Problem 5
 
 Plot the expression (`value`) by time (`hpi`) for the above genes. Format the plot as follows:
 
 1. Plot each point.
-1. Connect the points with a smooth line 
-1. Create a facet for each `plant` / `bgh` pair 
-1. Assign a different color to each gene 
-1. Assign a different shape to each replicate 
-1. Add a descriptive title to the plot 
-1. Use the "black & white" theme
+2. Connect the points with a smooth line 
+3. Create a facet for each `plant` / `bgh` pair 
+4. Assign a different color to each gene 
+5. Assign a different shape to each replicate 
+6. Add a descriptive title to the plot 
+7. Use the "black & white" theme
 
 Extra credit: add error bars to the plot (use `geom_errorbar`).
 
 ```{r problem_5}
+
+cleaned_data %>%
+    mutate(time.value = str_replace(time.point, "hpi", ""),
+           time.hpi = str_c("hpi.", time.value)) %>%
+    select(1:3,5:7) %>%
+    merge(., top.hits) %>%
+    arrange(as.numeric(time.value)) -> p.tbl
+  
+  p <- ggplot(p.tbl, 
+              aes(x=factor(time.value, levels = unique(time.value)),
+                  y = value, 
+                  shape = rep)) +
+    geom_point() + 
+    stat_summary(aes(y= value,
+                     group = gene.name,
+                     color = gene.name),
+                     fun.y = mean,
+                     geom = "line") +
+    theme_cowplot() +
+    facet_wrap(plant ~ fungus) +
+    labs(title = "Timecourse mRNA Expression of \n Barley Powdery Mildew Fungus in Arabidopsis",
+         x = "HPI",
+         y = "Expression Value",
+         color =  "Gene Name")
+  p
+
 ```
